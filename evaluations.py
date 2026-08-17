@@ -126,7 +126,8 @@ def peut_retenter(apprenant_id: int, competence_id: str):
 
 
 def enregistrer_tentative(apprenant_id: int, competence_id: str, note: float,
-                           feedback: dict, nb_changements_focus: int = 0):
+                           feedback: dict, questions: list = None, reponses: list = None,
+                           nb_changements_focus: int = 0):
     valide = 1 if note >= config.SEUIL_VALIDATION else 0
     with get_connection() as conn:
         numero = conn.execute(
@@ -136,7 +137,7 @@ def enregistrer_tentative(apprenant_id: int, competence_id: str, note: float,
 
         date_prochaine = None if valide else calculer_prochaine_date_tentative(numero)
 
-        conn.execute(
+        curseur = conn.execute(
             """INSERT INTO tentatives_evaluation
                (apprenant_id, competence_id, numero_tentative, note, valide,
                 date_tentative, date_prochaine_tentative, sous_themes_faibles, nb_changements_focus)
@@ -147,4 +148,20 @@ def enregistrer_tentative(apprenant_id: int, competence_id: str, note: float,
                 nb_changements_focus,
             ),
         )
+        tentative_id = curseur.lastrowid
+
+        # Détail question par question, nécessaire pour la revue formateur.
+        if questions and reponses:
+            for i, (q, r) in enumerate(zip(questions, reponses)):
+                conn.execute(
+                    """INSERT INTO reponses_detail
+                       (tentative_id, ordre, question, choix_json, reponse_donnee,
+                        reponse_correcte, sous_theme, niveau, est_correcte)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        tentative_id, i, q["question"], json.dumps(q["choix"], ensure_ascii=False),
+                        r if r is not None and r >= 0 else None, q["correct"],
+                        q.get("sous_theme"), q.get("niveau"), 1 if r == q["correct"] else 0,
+                    ),
+                )
     return valide, numero, date_prochaine

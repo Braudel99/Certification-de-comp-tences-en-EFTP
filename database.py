@@ -71,6 +71,20 @@ def init_db():
                 FOREIGN KEY (competence_id) REFERENCES competences (id)
             );
 
+            CREATE TABLE IF NOT EXISTS reponses_detail (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tentative_id INTEGER NOT NULL,
+                ordre INTEGER NOT NULL,
+                question TEXT NOT NULL,
+                choix_json TEXT NOT NULL,
+                reponse_donnee INTEGER,
+                reponse_correcte INTEGER NOT NULL,
+                sous_theme TEXT,
+                niveau TEXT,
+                est_correcte INTEGER NOT NULL,
+                FOREIGN KEY (tentative_id) REFERENCES tentatives_evaluation (id)
+            );
+
             CREATE TABLE IF NOT EXISTS blockchain_simulee (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 hash_ancre TEXT UNIQUE NOT NULL,

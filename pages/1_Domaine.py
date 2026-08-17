@@ -202,7 +202,8 @@ else:
         note = evaluations.calculer_note(questions, reponses)
         feedback = evaluations.feedback_par_sous_theme(questions, reponses)
         valide, numero, date_prochaine = evaluations.enregistrer_tentative(
-            utilisateur["id"], competence_id, note, feedback
+            utilisateur["id"], competence_id, note, feedback,
+            questions=questions, reponses=reponses,
         )
 
         cles_a_nettoyer = [cle_confirme, f"questions_{competence_id}", f"debut_{competence_id}", cle_page]
