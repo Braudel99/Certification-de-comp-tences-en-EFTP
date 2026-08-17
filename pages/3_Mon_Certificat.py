@@ -9,6 +9,7 @@ import streamlit as st
 import auth
 import theme
 import navigation
+import certification
 from database import get_connection
 
 theme.selecteur_theme()
@@ -34,11 +35,15 @@ if not certificats:
 for cert in certificats:
     contenu = json.loads(cert["contenu_json"])
     with st.container(border=True):
-        st.subheader(contenu["competence_nom"])
-        st.write(f"Note : **{contenu['note']}/20**")
-        st.write(f"Délivré le : {contenu['date_delivrance']}")
-        st.code(cert["identifiant_public"], language=None)
-        st.caption("Identifiant à transmettre pour vérification tierce (page publique).")
-        st.caption(f"Empreinte SHA-256 : `{cert['hash_certificat']}`")
-        # TODO : générer un QR code pointant vers la page de vérification avec cet identifiant
+        col_texte, col_qr = st.columns([3, 1])
+        with col_texte:
+            st.subheader(contenu["competence_nom"])
+            st.write(f"Note : **{contenu['note']}/20**")
+            st.write(f"Délivré le : {contenu['date_delivrance']}")
+            st.code(cert["identifiant_public"], language=None)
+            st.caption("Identifiant à transmettre pour vérification tierce (page publique).")
+            st.caption(f"Empreinte SHA-256 : `{cert['hash_certificat']}`")
+        with col_qr:
+            qr_png = certification.generer_qr_verification(cert["identifiant_public"])
+            st.image(qr_png, caption="Scanner pour vérifier", width=150)
         # TODO : bouton d'export PDF une fois la mise en forme visuelle définie

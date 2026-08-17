@@ -17,9 +17,17 @@ navigation.bouton_retour_domaines()
 st.header("Vérification publique d'un certificat")
 st.caption("Saisissez l'identifiant présent sur le certificat ou scanné via le QR code.")
 
-identifiant = st.text_input("Identifiant du certificat")
+# Pré-remplissage automatique si on arrive ici via un scan de QR code
+# (l'URL encodée dans le QR contient ?id=<identifiant>).
+identifiant_depuis_url = st.query_params.get("id", "")
 
-if st.button("Vérifier", type="primary") and identifiant:
+identifiant = st.text_input("Identifiant du certificat", value=identifiant_depuis_url)
+
+verification_auto = bool(identifiant_depuis_url) and f"verif_auto_{identifiant_depuis_url}" not in st.session_state
+if verification_auto:
+    st.session_state[f"verif_auto_{identifiant_depuis_url}"] = True
+
+if (st.button("Vérifier", type="primary") or verification_auto) and identifiant:
     resultat = verification.verifier_certificat(identifiant.strip())
 
     if resultat["statut"] == "AUTHENTIQUE":

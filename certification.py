@@ -9,7 +9,11 @@ qui est ce qui doit être haché, avant toute mise en forme visuelle.
 import hashlib
 import json
 import uuid
+from io import BytesIO
 
+import qrcode
+
+import config
 from database import get_connection, now_iso
 import blockchain
 
@@ -59,3 +63,17 @@ def emettre_certificat(apprenant: dict, competence: dict, note: float) -> dict:
             ),
         )
     return contenu
+
+
+def url_verification(identifiant_public: str) -> str:
+    """URL complète encodée dans le QR code : ouvre directement la page de
+    vérification avec l'identifiant pré-rempli, plutôt qu'un simple texte brut."""
+    return f"{config.URL_BASE_VERIFICATION}/Verification_Publique?id={identifiant_public}"
+
+
+def generer_qr_verification(identifiant_public: str) -> bytes:
+    """Génère le QR code (PNG, en mémoire) pointant vers la page de vérification."""
+    img = qrcode.make(url_verification(identifiant_public), box_size=8, border=2)
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    return buffer.getvalue()

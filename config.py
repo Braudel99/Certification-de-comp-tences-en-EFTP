@@ -109,3 +109,10 @@ COMPETENCES_MVP = [
 # Format de matricule accepté : une suite de chiffres, entre 5 et 11 caractères.
 MATRICULE_LONGUEUR_MIN = 5
 MATRICULE_LONGUEUR_MAX = 11
+
+# --- Vérification publique ---
+# Base de l'URL utilisée pour construire le lien encodé dans le QR code du certificat.
+# En local (développement), l'adresse Streamlit par défaut convient. Une fois la
+# plateforme déployée avec un vrai nom de domaine, mettre à jour cette valeur —
+# sinon les QR codes déjà émis avant le déploiement pointeront vers localhost.
+URL_BASE_VERIFICATION = "http://localhost:8501"
