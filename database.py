@@ -1,36 +1,35 @@
 """
 database.py
-Couche d'accès aux données, migrée vers Turso (libSQL distant) pour la persistance
-réelle -- le fichier SQLite local de Streamlit Cloud n'est PAS garanti de survivre
-aux redémarrages/redéploiements du conteneur, ce qui a causé la disparition de
-comptes signalée en test.
+Couche d'accès aux données, sur Turso (libSQL distant) pour la persistance réelle.
 
-Turso étant compatible SQLite (même dialecte, mêmes types), tout le reste du code
-(auth.py, evaluations.py, certification.py, blockchain.py, verification.py, les
-pages) continue à utiliser exactement la même syntaxe qu'avant :
+Deuxième version de cette migration : le paquet `libsql_client` utilisé initialement
+est ARCHIVÉ depuis juin 2025 par Turso (dépréciation confirmée sur son dépôt GitHub)
+et son mode HTTP renvoie des réponses que ce client abandonné ne sait plus analyser
+correctement (KeyError: 'result'). On migre donc vers son remplaçant officiel, le
+paquet `libsql` (SDK natif, compatible sqlite3), nettement plus proche de l'API
+standard -- ce qui simplifie d'ailleurs la couche de compatibilité ci-dessous.
+
+Le reste du code (auth.py, evaluations.py, certification.py, blockchain.py,
+verification.py, les pages) continue à utiliser exactement la même syntaxe qu'avant :
     with get_connection() as conn:
         conn.execute("SELECT ...", (param,)).fetchone() / .fetchall()
         curseur = conn.execute("INSERT ..."); curseur.lastrowid
 
-La classe ConnexionCompat ci-dessous fait le pont avec l'API du client libsql_client
-(qui diffère légèrement de sqlite3), afin qu'aucun autre fichier n'ait besoin
-d'être modifié pour ce changement d'infrastructure.
-
 Configuration requise (voir .streamlit/secrets.toml en local, ou l'onglet "Secrets"
 du tableau de bord Streamlit Cloud pour la production) :
     TURSO_DATABASE_URL = "libsql://<votre-base>.turso.io"
-    TURSO_AUTH_TOKEN   = "<jeton généré via `turso db tokens create`>"
+    TURSO_AUTH_TOKEN   = "<jeton généré depuis le tableau de bord Turso>"
 
-Si ces secrets sont absents (typiquement en développement local sans configuration
-Turso), la base retombe automatiquement sur un fichier local (config.DB_PATH) --
-pratique pour tester rapidement, mais NON persistant sur Streamlit Cloud : à utiliser
-uniquement pour du développement, jamais pour la version déployée aux apprenants.
+Si ces secrets sont absents (développement local sans configuration Turso), la base
+retombe automatiquement sur un fichier local (config.DB_PATH) -- pratique pour tester
+rapidement, mais NON persistant sur Streamlit Cloud : à ne jamais utiliser pour la
+version réellement déployée aux apprenants.
 """
 
 from contextlib import contextmanager
 from datetime import datetime
 
-import libsql_client
+import libsql
 import streamlit as st
 import config
 
@@ -46,22 +45,15 @@ def _url_et_jeton():
     if not url:
         # Repli développement local : fichier SQLite classique, NON persistant sur
         # Streamlit Cloud -- à ne jamais utiliser pour la version réellement déployée.
-        return f"file:{config.DB_PATH}", None
-
-    # Le schéma "libsql://" est traité comme "wss://" (WebSocket) par le SDK Python --
-    # cette connexion échoue sur Streamlit Cloud (WSServerHandshakeError). "https://"
-    # utilise de simples requêtes HTTP, bien plus fiable dans cet environnement.
-    if url.startswith("libsql://"):
-        url = url.replace("libsql://", "https://", 1)
-
+        return config.DB_PATH, None
     return url, jeton
 
 
 class Row:
     """Émule sqlite3.Row : accès par nom de colonne (row['col']) ou par index."""
 
-    def __init__(self, colonnes, valeurs):
-        self._colonnes = colonnes
+    def __init__(self, description, valeurs):
+        self._colonnes = [d[0] for d in description] if description else []
         self._valeurs = valeurs
 
     def __getitem__(self, cle):
@@ -76,70 +68,67 @@ class Row:
         return repr(dict(zip(self._colonnes, self._valeurs)))
 
 
-class ResultatCompat:
-    """Émule le curseur sqlite3 : .fetchone(), .fetchall(), .lastrowid."""
+class CurseurCompat:
+    """Émule le curseur sqlite3 : .fetchone(), .fetchall(), .lastrowid, avec accès
+    aux lignes par nom de colonne (row_factory n'est pas encore implémenté par le
+    paquet libsql -- on le reconstruit nous-mêmes à partir de cursor.description)."""
 
-    def __init__(self, result_set, client, est_insert):
-        self._result_set = result_set
-        self._client = client
-        self._est_insert = est_insert
-        self._index = 0
+    def __init__(self, cursor):
+        self._cursor = cursor
 
     def fetchone(self):
-        if self._index >= len(self._result_set.rows):
+        ligne = self._cursor.fetchone()
+        if ligne is None:
             return None
-        ligne = Row(self._result_set.columns, self._result_set.rows[self._index])
-        self._index += 1
-        return ligne
+        return Row(self._cursor.description, ligne)
 
     def fetchall(self):
-        return [Row(self._result_set.columns, r) for r in self._result_set.rows]
+        return [Row(self._cursor.description, l) for l in self._cursor.fetchall()]
 
     def __iter__(self):
         return iter(self.fetchall())
 
     @property
     def lastrowid(self):
-        if not self._est_insert:
-            return None
-        resultat = self._client.execute("SELECT last_insert_rowid()")
-        return resultat.rows[0][0]
+        return self._cursor.lastrowid
 
 
 class ConnexionCompat:
     """Émule l'API sqlite3.Connection utilisée dans le reste du projet."""
 
-    def __init__(self, client):
-        self._client = client
+    def __init__(self, conn):
+        self._conn = conn
 
     def execute(self, sql, params=None):
-        rs = self._client.execute(sql, list(params) if params else [])
-        est_insert = sql.strip().upper().startswith("INSERT")
-        return ResultatCompat(rs, self._client, est_insert)
+        curseur = self._conn.cursor()
+        curseur.execute(sql, tuple(params) if params else ())
+        return CurseurCompat(curseur)
 
     def executescript(self, script):
-        """libSQL exécute une instruction à la fois : on découpe sur ';'."""
+        """executescript() n'est pas implémenté par le paquet libsql : on découpe
+        nous-mêmes sur ';' et on exécute une instruction à la fois."""
         for instruction in script.split(";"):
             instruction = instruction.strip()
             if instruction:
-                self._client.execute(instruction)
+                self.execute(instruction)
 
     def commit(self):
-        pass  # chaque execute() est déjà validé côté serveur libSQL, no-op ici
+        self._conn.commit()
 
     def close(self):
-        pass  # fermeture gérée par get_connection()
+        self._conn.close()
 
 
 @contextmanager
 def get_connection():
     url, jeton = _url_et_jeton()
-    client = libsql_client.create_client_sync(url, auth_token=jeton) if jeton \
-        else libsql_client.create_client_sync(url)
+    conn_native = libsql.connect(database=url, auth_token=jeton) if jeton \
+        else libsql.connect(database=url)
     try:
-        yield ConnexionCompat(client)
+        yield ConnexionCompat(conn_native)
+        conn_native.commit()
     finally:
-        client.close()
+        conn_native.close()
 
 
 def init_db():
