@@ -67,6 +67,7 @@ def afficher_avertissement_evaluation(duree_minutes: int) -> bool:
         - Le changement d'onglet ou de fenêtre est **journalisé**.
         - Le copier-coller et le clic droit sont désactivés sur cette page.
         - Une fois lancée, l'évaluation ne peut pas être mise en pause.
+        - **Munissez-vous d'une calculatrice** pour les questions nécessitant un calcul.
 
         Assurez-vous d'être dans de bonnes conditions avant de continuer.
         """

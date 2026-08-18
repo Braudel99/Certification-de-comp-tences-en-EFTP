@@ -6,7 +6,6 @@ Squelette simple : à renforcer (salage, sessions expirables) avant toute mise e
 
 import hashlib
 import re
-import sqlite3
 import streamlit as st
 import config
 from database import get_connection, now_iso
@@ -60,8 +59,13 @@ def creer_compte(nom: str, email: str, mot_de_passe: str, role: str = "apprenant
                 (nom.strip(), email.strip().lower(), hash_mot_de_passe(mot_de_passe), role,
                  now_iso(), matricule_normalise),
             )
-        except sqlite3.IntegrityError:
-            raise ValueError("Un compte existe déjà avec cet email.")
+        except Exception as e:
+            # Le type d'exception diffère selon le backend (sqlite3.IntegrityError en local,
+            # une exception propre à libsql_client via Turso) -- on identifie le cas par le
+            # message plutôt que par le type exact, pour rester compatible avec les deux.
+            if "UNIQUE" in str(e).upper() or "constraint" in str(e).lower():
+                raise ValueError("Un compte existe déjà avec cet email.")
+            raise
 
         row = conn.execute(
             "SELECT * FROM apprenants WHERE email = ?", (email.strip().lower(),)

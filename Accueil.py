@@ -41,20 +41,28 @@ if auth.utilisateur_connecte() is None:
 
     with onglet_inscription:
         st.caption("Les comptes vérificateur sont créés séparément par l'administration.")
+
+        # En dehors du formulaire : un changement de rôle doit s'afficher immédiatement
+        # (dans un st.form, les widgets ne déclenchent pas de nouvelle exécution avant
+        # la soumission, donc le champ matricule n'apparaissait qu'après un premier clic).
+        role_i = st.radio(
+            "Je suis", options=["apprenant", "formateur"],
+            format_func=lambda r: "Apprenant" if r == "apprenant" else "Formateur",
+            horizontal=True, key="role_inscription",
+        )
+        matricule_i = ""
+        if role_i == "formateur":
+            matricule_i = st.text_input(
+                "Matricule formateur",
+                help="Requis pour confirmer votre statut de formateur.",
+                key="matricule_inscription",
+            )
+
         with st.form("inscription"):
             nom = st.text_input("Nom complet")
             email_i = st.text_input("Email", key="email_inscription")
             mdp_i = st.text_input("Mot de passe", type="password", key="mdp_inscription")
             mdp_confirm = st.text_input("Confirmer le mot de passe", type="password")
-            role_i = st.radio("Je suis", options=["apprenant", "formateur"],
-                               format_func=lambda r: "Apprenant" if r == "apprenant" else "Formateur",
-                               horizontal=True)
-            matricule_i = ""
-            if role_i == "formateur":
-                matricule_i = st.text_input(
-                    "Matricule formateur",
-                    help="Requis pour confirmer votre statut de formateur.",
-                )
             soumis_i = st.form_submit_button("Créer mon compte", type="primary")
 
         if soumis_i:

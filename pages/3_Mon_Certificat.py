@@ -46,4 +46,12 @@ for cert in certificats:
         with col_qr:
             qr_png = certification.generer_qr_verification(cert["identifiant_public"])
             st.image(qr_png, caption="Scanner pour vérifier", width=150)
-        # TODO : bouton d'export PDF une fois la mise en forme visuelle définie
+
+        pdf_bytes = certification.generer_certificat_pdf(contenu, cert["hash_certificat"])
+        st.download_button(
+            "📄 Télécharger le certificat (PDF)",
+            data=pdf_bytes,
+            file_name=f"certificat_{contenu['competence_id']}_{cert['identifiant_public'][:8]}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
