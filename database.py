@@ -47,6 +47,13 @@ def _url_et_jeton():
         # Repli développement local : fichier SQLite classique, NON persistant sur
         # Streamlit Cloud -- à ne jamais utiliser pour la version réellement déployée.
         return f"file:{config.DB_PATH}", None
+
+    # Le schéma "libsql://" est traité comme "wss://" (WebSocket) par le SDK Python --
+    # cette connexion échoue sur Streamlit Cloud (WSServerHandshakeError). "https://"
+    # utilise de simples requêtes HTTP, bien plus fiable dans cet environnement.
+    if url.startswith("libsql://"):
+        url = url.replace("libsql://", "https://", 1)
+
     return url, jeton
 
 
