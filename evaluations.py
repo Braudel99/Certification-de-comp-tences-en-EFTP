@@ -125,6 +125,47 @@ def peut_retenter(apprenant_id: int, competence_id: str):
     return False, derniere["date_prochaine_tentative"], False
 
 
+def sauvegarder_progression(apprenant_id: int, competence_id: str, index_debut: int, valeurs_brutes: list):
+    """
+    Sauvegarde immédiatement en base les réponses d'un lot validé, plutôt que de
+    compter uniquement sur st.session_state (qui peut être perdu en cas de coupure
+    de connexion WebSocket, surtout sur une évaluation longue). Source de vérité
+    durable, indépendante de la session en mémoire.
+    """
+    with get_connection() as conn:
+        for offset, valeur in enumerate(valeurs_brutes):
+            conn.execute(
+                """INSERT INTO progression_evaluation (apprenant_id, competence_id, ordre, valeur_brute)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(apprenant_id, competence_id, ordre)
+                   DO UPDATE SET valeur_brute = excluded.valeur_brute""",
+                (apprenant_id, competence_id, index_debut + offset, valeur),
+            )
+
+
+def charger_progression(apprenant_id: int, competence_id: str, nb_questions: int) -> list:
+    """Retourne la liste des valeurs brutes sauvegardées, None pour les questions non atteintes."""
+    with get_connection() as conn:
+        lignes = conn.execute(
+            "SELECT ordre, valeur_brute FROM progression_evaluation WHERE apprenant_id=? AND competence_id=?",
+            (apprenant_id, competence_id),
+        ).fetchall()
+    valeurs = [None] * nb_questions
+    for l in lignes:
+        if l["ordre"] < nb_questions:
+            valeurs[l["ordre"]] = l["valeur_brute"]
+    return valeurs
+
+
+def effacer_progression(apprenant_id: int, competence_id: str):
+    """À appeler au démarrage d'une nouvelle tentative et après notation d'une tentative."""
+    with get_connection() as conn:
+        conn.execute(
+            "DELETE FROM progression_evaluation WHERE apprenant_id=? AND competence_id=?",
+            (apprenant_id, competence_id),
+        )
+
+
 def enregistrer_tentative(apprenant_id: int, competence_id: str, note: float,
                            feedback: dict, questions: list = None, reponses: list = None,
                            nb_changements_focus: int = 0):

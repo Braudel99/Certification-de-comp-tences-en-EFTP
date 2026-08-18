@@ -133,6 +133,7 @@ if not st.session_state[cle_confirme]:
         st.session_state[cle_confirme] = True
         st.session_state[f"questions_{competence_id}"] = evaluations.tirer_questions(competence_id)
         st.session_state[f"debut_{competence_id}"] = time.time()
+        evaluations.effacer_progression(utilisateur["id"], competence_id)  # nouvelle tentative : repartir propre
         st.rerun()
     st.stop()
 
@@ -198,6 +199,7 @@ def noter_et_afficher_resultat(reponses_brutes):
     cles_a_nettoyer += [f"q_{competence_id}_{i}" for i in range(len(questions))]
     for cle in cles_a_nettoyer:
         st.session_state.pop(cle, None)
+    evaluations.effacer_progression(utilisateur["id"], competence_id)
 
     if valide:
         st.success(f"Compétence validée avec {note}/20 !")
@@ -215,14 +217,31 @@ def noter_et_afficher_resultat(reponses_brutes):
         st.warning(f"Prochaine tentative possible {utils.formater_delai(date_prochaine)}.")
 
 
+def recuperer_reponses_completes():
+    """
+    Fusionne la progression sauvegardée en base (lots déjà validés par 'Continuer',
+    donc durable même en cas de coupure de session) avec l'état actuel de la session
+    (le lot en cours, pas encore validé). La base de données fait foi pour tout ce
+    qui a déjà été confirmé ; la session ne complète que le lot affiché à l'instant.
+    """
+    depuis_bd = evaluations.charger_progression(utilisateur["id"], competence_id, len(questions))
+    reponses = []
+    for i in range(len(questions)):
+        valeur_session = st.session_state.get(f"q_{competence_id}_{i}")
+        if valeur_session is not None and valeur_session != 0:
+            reponses.append(valeur_session)
+        else:
+            reponses.append(depuis_bd[i])
+    return reponses
+
+
 if temps_ecoule_total:
-    # Le temps est écoulé : on note directement ce qui a déjà été répondu (session_state
-    # conserve toutes les réponses données sur les lots déjà vus), sans jamais afficher
-    # un lot que l'apprenant n'a pas atteint -- afficher un lot non demandé puis noter
+    # Le temps est écoulé : on note avec tout ce qui a déjà été validé (base de
+    # données) complété par le lot en cours (session), sans jamais afficher un lot
+    # que l'apprenant n'a pas atteint -- afficher un lot non demandé puis noter
     # immédiatement après ne fait que semer la confusion sur ce qui a été pris en compte.
     st.error("Temps écoulé. Évaluation soumise avec les réponses données jusqu'ici.")
-    reponses = [st.session_state.get(f"q_{competence_id}_{i}") for i in range(len(questions))]
-    noter_et_afficher_resultat(reponses)
+    noter_et_afficher_resultat(recuperer_reponses_completes())
     st.stop()
 
 st.caption(f"Lot {page_courante + 1} / {nb_pages} — niveau : {questions[page_courante * taille_page]['niveau']}")
@@ -248,6 +267,7 @@ est_dernier_lot = page_courante >= nb_pages - 1
 
 if not est_dernier_lot:
     if st.button("Continuer →", type="primary", disabled=lot_incomplet, use_container_width=True):
+        evaluations.sauvegarder_progression(utilisateur["id"], competence_id, debut_lot, reponses_lot)
         st.session_state[cle_page] = page_courante + 1
         st.rerun()
     if lot_incomplet:
@@ -259,5 +279,5 @@ else:
         st.caption("Répondez à toutes les questions de ce lot pour terminer.")
 
     if soumis:
-        reponses = [st.session_state.get(f"q_{competence_id}_{i}") for i in range(len(questions))]
-        noter_et_afficher_resultat(reponses)
+        evaluations.sauvegarder_progression(utilisateur["id"], competence_id, debut_lot, reponses_lot)
+        noter_et_afficher_resultat(recuperer_reponses_completes())
