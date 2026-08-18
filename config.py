@@ -7,9 +7,7 @@ Modifier ici plutôt que dans le code métier.
 # --- Évaluation ---
 SEUIL_VALIDATION = 16          # note minimale sur 20 pour valider une compétence
 NOTE_MAX = 20
-NB_QUESTIONS_PAR_TENTATIVE = 40  # questions réellement posées à chaque tentative
 NB_QUESTIONS_MIN_BANQUE = 20     # taille minimale recommandée de la banque par compétence
-TEMPS_PAR_QUESTION_MIN = 1.3     # minutes, utilisé pour calculer la durée totale du chrono
 
 # Répartition par niveau de difficulté au sein des 40 questions tirées (tirage stratifié,
 # pas un tirage uniforme, pour garder l'équilibre facile/moyen/application/difficile/pratique).
@@ -19,7 +17,12 @@ REPARTITION_NIVEAUX = {
     "Application": 10,
     "Difficile": 8,
     "Pratique": 6,
-}  # somme = 40 = NB_QUESTIONS_PAR_TENTATIVE
+}  # somme = 40 questions par tentative
+
+# Durée globale et fixe de l'évaluation (minuteur unique pour l'ensemble des 40 questions,
+# pas un calcul par question) : l'apprenant gère son temps comme il le souhaite entre les
+# questions, et l'évaluation est verrouillée dès que ce délai est écoulé.
+DUREE_EVALUATION_MINUTES = 40
 
 # Affichage de l'évaluation par lots successifs (pagination), plutôt que les 40
 # questions d'un coup, pour ne pas décourager le candidat. Ordonné par difficulté
@@ -62,7 +65,7 @@ COMPETENCES_MVP = [
     {
         "id": "C1",
         "domaine_id": "EN",
-        "nom": "Dimensionner un système photovoltaïque autonome",
+        "nom": "Système solaire",
         "type_pratique": "simulateur_pv",  # renvoie vers le moteur PV Sizing réutilisé
         "image": "assets/images/competence_pv.webp",
         "presentation": (

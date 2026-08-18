@@ -129,8 +129,7 @@ if cle_confirme not in st.session_state:
     st.session_state[cle_confirme] = False
 
 if not st.session_state[cle_confirme]:
-    duree = round(config.NB_QUESTIONS_PAR_TENTATIVE * config.TEMPS_PAR_QUESTION_MIN)
-    if utils.afficher_avertissement_evaluation(duree):
+    if utils.afficher_avertissement_evaluation(config.DUREE_EVALUATION_MINUTES):
         st.session_state[cle_confirme] = True
         st.session_state[f"questions_{competence_id}"] = evaluations.tirer_questions(competence_id)
         st.session_state[f"debut_{competence_id}"] = time.time()
@@ -142,7 +141,9 @@ utils.injecter_protections_anticopie()
 utils.injecter_detecteur_focus()
 
 questions = st.session_state[f"questions_{competence_id}"]
-duree_totale_s = config.NB_QUESTIONS_PAR_TENTATIVE * config.TEMPS_PAR_QUESTION_MIN * 60
+# Minuteur global et fixe (config.DUREE_EVALUATION_MINUTES) : l'apprenant répartit son
+# temps comme il le souhaite entre les 40 questions, pas de minutage par question/par lot.
+duree_totale_s = config.DUREE_EVALUATION_MINUTES * 60
 temps_ecoule = time.time() - st.session_state[f"debut_{competence_id}"]
 temps_restant = max(0, duree_totale_s - temps_ecoule)
 
@@ -159,9 +160,70 @@ if cle_page not in st.session_state:
 page_courante = st.session_state[cle_page]
 
 temps_ecoule_total = temps_restant <= 0
+
+
+PLACEHOLDER_NON_REPONDU = "— Sélectionnez une réponse —"
+
+
+def valeur_brute_vers_index_reel(valeur_brute):
+    """
+    Convertit la valeur brute du widget radio (0 = placeholder non cliqué,
+    1..4 = un des 4 vrais choix) vers l'index réel comparable à q['correct']
+    (0..3), ou -1 si aucune vraie réponse n'a été sélectionnée.
+    """
+    if valeur_brute is None or valeur_brute == 0:
+        return -1
+    return valeur_brute - 1
+
+
+def noter_et_afficher_resultat(reponses_brutes):
+    reponses = [valeur_brute_vers_index_reel(r) for r in reponses_brutes]
+
+    # Panneau de diagnostic technique : montre l'état brut capturé pour CHAQUE question
+    # avant toute conversion/notation, pour distinguer un problème de capture (le clic
+    # n'est pas enregistré) d'un problème ailleurs dans la chaîne.
+    with st.expander("🔧 Détails techniques de cette tentative (diagnostic)"):
+        for i, (brut, reel) in enumerate(zip(reponses_brutes, reponses)):
+            statut = "non répondue" if reel == -1 else f"choix n°{reel + 1} sélectionné"
+            st.caption(f"Q{i + 1} — valeur brute captée : {brut!r} → interprétée comme : {statut}")
+
+    note = evaluations.calculer_note(questions, reponses)
+    feedback = evaluations.feedback_par_sous_theme(questions, reponses)
+    valide, numero, date_prochaine = evaluations.enregistrer_tentative(
+        utilisateur["id"], competence_id, note, feedback,
+        questions=questions, reponses=reponses,
+    )
+
+    cles_a_nettoyer = [cle_confirme, f"questions_{competence_id}", f"debut_{competence_id}", cle_page]
+    cles_a_nettoyer += [f"q_{competence_id}_{i}" for i in range(len(questions))]
+    for cle in cles_a_nettoyer:
+        st.session_state.pop(cle, None)
+
+    if valide:
+        st.success(f"Compétence validée avec {note}/20 !")
+        certificat = certification.emettre_certificat(utilisateur, competence, note)
+        st.info(f"Certificat émis — identifiant public : `{certificat['identifiant_public']}`")
+        st.balloons()
+    else:
+        st.error(f"Note obtenue : {note}/20 — seuil requis : {config.SEUIL_VALIDATION}/20.")
+        if feedback:
+            st.markdown("**Sous-thèmes à retravailler** *(sans détail des questions)* :")
+            for sous_theme, message in feedback.items():
+                st.write(f"- {sous_theme} : {message}")
+        else:
+            st.write("Aucun sous-thème particulier identifié — révisez l'ensemble du contenu.")
+        st.warning(f"Prochaine tentative possible {utils.formater_delai(date_prochaine)}.")
+
+
 if temps_ecoule_total:
-    st.error("Temps écoulé. L'évaluation est soumise automatiquement avec les réponses actuelles.")
-    page_courante = nb_pages - 1  # forcer l'affichage de la dernière page pour le bouton Terminer
+    # Le temps est écoulé : on note directement ce qui a déjà été répondu (session_state
+    # conserve toutes les réponses données sur les lots déjà vus), sans jamais afficher
+    # un lot que l'apprenant n'a pas atteint -- afficher un lot non demandé puis noter
+    # immédiatement après ne fait que semer la confusion sur ce qui a été pris en compte.
+    st.error("Temps écoulé. Évaluation soumise avec les réponses données jusqu'ici.")
+    reponses = [st.session_state.get(f"q_{competence_id}_{i}") for i in range(len(questions))]
+    noter_et_afficher_resultat(reponses)
+    st.stop()
 
 st.caption(f"Lot {page_courante + 1} / {nb_pages} — niveau : {questions[page_courante * taille_page]['niveau']}")
 
@@ -171,15 +233,16 @@ fin_lot = min(debut_lot + taille_page, len(questions))
 for i in range(debut_lot, fin_lot):
     q = questions[i]
     st.markdown(f"**Question {i + 1}.** {q['question']}")
+    options_affichees = [PLACEHOLDER_NON_REPONDU] + q["choix"]
     st.radio(
-        "Réponse", options=list(range(len(q["choix"]))),
-        format_func=lambda idx, q=q: q["choix"][idx],
-        key=f"q_{competence_id}_{i}", index=None, label_visibility="collapsed",
+        "Réponse", options=list(range(len(options_affichees))),
+        format_func=lambda idx, opts=options_affichees: opts[idx],
+        key=f"q_{competence_id}_{i}", index=0, label_visibility="collapsed",
     )
     st.divider()
 
 reponses_lot = [st.session_state.get(f"q_{competence_id}_{i}") for i in range(debut_lot, fin_lot)]
-lot_incomplet = None in reponses_lot and not temps_ecoule_total
+lot_incomplet = any(r is None or r == 0 for r in reponses_lot)
 
 est_dernier_lot = page_courante >= nb_pages - 1
 
@@ -195,33 +258,6 @@ else:
     if lot_incomplet:
         st.caption("Répondez à toutes les questions de ce lot pour terminer.")
 
-    if soumis or temps_ecoule_total:
+    if soumis:
         reponses = [st.session_state.get(f"q_{competence_id}_{i}") for i in range(len(questions))]
-        reponses = [r if r is not None else -1 for r in reponses]
-
-        note = evaluations.calculer_note(questions, reponses)
-        feedback = evaluations.feedback_par_sous_theme(questions, reponses)
-        valide, numero, date_prochaine = evaluations.enregistrer_tentative(
-            utilisateur["id"], competence_id, note, feedback,
-            questions=questions, reponses=reponses,
-        )
-
-        cles_a_nettoyer = [cle_confirme, f"questions_{competence_id}", f"debut_{competence_id}", cle_page]
-        cles_a_nettoyer += [f"q_{competence_id}_{i}" for i in range(len(questions))]
-        for cle in cles_a_nettoyer:
-            st.session_state.pop(cle, None)
-
-        if valide:
-            st.success(f"Compétence validée avec {note}/20 !")
-            certificat = certification.emettre_certificat(utilisateur, competence, note)
-            st.info(f"Certificat émis — identifiant public : `{certificat['identifiant_public']}`")
-            st.balloons()
-        else:
-            st.error(f"Note obtenue : {note}/20 — seuil requis : {config.SEUIL_VALIDATION}/20.")
-            if feedback:
-                st.markdown("**Sous-thèmes à retravailler** *(sans détail des questions)* :")
-                for sous_theme, message in feedback.items():
-                    st.write(f"- {sous_theme} : {message}")
-            else:
-                st.write("Aucun sous-thème particulier identifié — révisez l'ensemble du contenu.")
-            st.warning(f"Prochaine tentative possible {utils.formater_delai(date_prochaine)}.")
+        noter_et_afficher_resultat(reponses)
