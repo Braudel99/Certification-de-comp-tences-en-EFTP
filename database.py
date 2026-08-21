@@ -176,8 +176,17 @@ def init_db():
                 contenu_json TEXT NOT NULL,
                 hash_certificat TEXT NOT NULL,
                 hash_ancre_blockchain TEXT NOT NULL,
+                ipfs_cid TEXT,
+                blockchain_tx_hash TEXT,
                 FOREIGN KEY (apprenant_id) REFERENCES apprenants (id),
                 FOREIGN KEY (competence_id) REFERENCES competences (id)
+            );
+
+            CREATE TABLE IF NOT EXISTS blockchain_erreurs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hash_certificat TEXT NOT NULL,
+                erreur TEXT,
+                date_erreur TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS reponses_detail (
@@ -219,6 +228,13 @@ def init_db():
         colonnes = [row["name"] for row in conn.execute("PRAGMA table_info(apprenants)")]
         if "matricule" not in colonnes:
             conn.execute("ALTER TABLE apprenants ADD COLUMN matricule TEXT")
+
+        # Migration : colonnes IPFS/blockchain réelle si absentes (certificats émis avant cette évolution)
+        colonnes_cert = [row["name"] for row in conn.execute("PRAGMA table_info(certificats)")]
+        if "ipfs_cid" not in colonnes_cert:
+            conn.execute("ALTER TABLE certificats ADD COLUMN ipfs_cid TEXT")
+        if "blockchain_tx_hash" not in colonnes_cert:
+            conn.execute("ALTER TABLE certificats ADD COLUMN blockchain_tx_hash TEXT")
 
 
 def now_iso():

@@ -6,6 +6,7 @@ et obtient l'un des trois statuts : AUTHENTIQUE / FALSIFIE / INCONNU.
 
 import streamlit as st
 import verification
+import ipfs
 import theme
 import navigation
 
@@ -37,6 +38,18 @@ if (st.button("Vérifier", type="primary") or verification_auto) and identifiant
         st.write(f"**Compétence :** {cert['competence_nom']}")
         st.write(f"**Note :** {cert['note']}/20")
         st.write(f"**Date de délivrance :** {cert['date_delivrance']}")
+
+        if resultat.get("blockchain_tx_hash") or resultat.get("ipfs_cid"):
+            with st.expander("🔍 Vérification indépendante (sans passer par notre plateforme)"):
+                st.caption(
+                    "Ces liens permettent de confirmer l'authenticité de ce certificat "
+                    "même si notre plateforme n'est plus accessible."
+                )
+                if resultat.get("blockchain_tx_hash"):
+                    url_explorateur = f"https://amoy.polygonscan.com/tx/{resultat['blockchain_tx_hash']}"
+                    st.write(f"**Transaction blockchain :** [{resultat['blockchain_tx_hash'][:20]}...]({url_explorateur})")
+                if resultat.get("ipfs_cid"):
+                    st.write(f"**Copie décentralisée (IPFS) :** [{resultat['ipfs_cid']}]({ipfs.url_ipfs(resultat['ipfs_cid'])})")
 
     elif resultat["statut"] == "FALSIFIE":
         st.error(resultat["message"])
